@@ -1,0 +1,115 @@
+
+### Usage: Rscript aiQTL <xfile> <nfile> <gfile> <targets>
+### Where 
+###	xfile contains the number of reads mapped to one allele of the genes on the rows for each sample on the columns
+###	nfile contains the total number of allele-specifically mapped reads (again genes on rows samples on columns)
+###	gfile contains the genotypes (0,1,2) of each individual (on the columns) for each SNP (in the rows)
+###	targets contains the SNP-gene pairs to be tested (each row contains a SNPID followed by a gene ID)
+###	Data in all the input files should be tab-separated
+###
+### To run the sample data:
+###	Rscript aiQTL xsample nsample gsample targetSample 
+
+require(VGAM)
+Min_reads_in_hets = 30
+Min_hets = 3
+Min_try = 3
+Max_try = 10
+Tol = 0.001
+
+args = commandArgs(trailingOnly=TRUE)
+
+### File containing the output, by default named aiQTL.out
+### Output file format: 
+### gene SNP log_likelihood_M0 log_likelihood_M1 delta_log_likelihood P1_homozygotes alpha_1 alpha_2 P1_heterozygotes convergenceM0 convergenceM1
+outfile = "aiQTL.out"
+
+xfile = args[1]
+nfile = args[2]
+gfile = args[3]
+targetfile = args[4]
+
+N = read.table(nfile,h=T,sep="\t",row.names=1)
+A = read.table(xfile,h=T,sep="\t",row.names=1)
+G = read.table(gfile,h=T,row.names=1,sep="\t")
+targets = read.table(targetfile,sep="\t")
+
+cn = colnames(N)
+A = A[,colnames(N)]
+G = G[,cn]
+
+source("likelihood_functions.R");
+
+Out = c()
+
+for(i in 1:nrow(targets)) {
+snp = targets[i,1]
+gene = targets[i,2]
+print(c(snp,gene))
+	if(snp %in% rownames(G) & gene %in% rownames(N)) {
+	g = as.numeric(unlist(G[snp,]))
+	x = as.numeric(unlist(A[gene,]))
+	n = as.numeric(unlist(N[gene,]))
+	gg = g # versions of these variables that won't be changed, for look-up of NA values in shared indices
+	xx = x
+	nn = n
+	x = x[!is.na(gg) & !is.na(xx) & !is.na(nn) & (gg==0 | gg == 1 | gg == 2) & nn > 1]
+	n = n[!is.na(gg) & !is.na(xx) & !is.na(nn) & (gg==0 | gg == 1 | gg == 2) & nn > 1]
+	g = g[!is.na(gg) & !is.na(xx) & !is.na(nn) & (gg==0 | gg == 1 | gg == 2) & nn > 1]
+	x0 = x[g==0 | g==2] # x0/n0 and x1/n1 carry allele-specifically mapped read counts for homozygotes and heterozygotes, respectively
+	n0 = n[g==0 | g==2]
+	x1 = x[g==1]
+	n1 = n[g==1]
+
+#Requires at least Min_hets heterozygotes with a total of at least Min_reads_in_hets allele-specifically mapped reads in order to test
+		if(length(n1) >= Min_hets & sum(n1) >= Min_reads_in_hets) {
+		diff0 = 1
+		diff1 = 1
+		opt0 = try(optim(c(.7,4,50),func0,control=list(fnscale=-1,maxit=100000)))
+			if(class(opt0) == "try-error") {
+			next
+			}
+		opt1 = try(optim(c(opt0$par,opt0$par[1]),func1,control=list(fnscale=-1,maxit=100000)))
+			if(class(opt1) == "try-error") {
+			next
+			}
+		current0 = opt0
+		current1 = opt1
+		ct = 0
+		init0 = c((length(g[g==0])*opt1$par[1] + length(g[g==1])*opt1$par[4])/length(g),opt1$par[2:3]) # this is a weighted mean of the mixture weights (to find a good starting point to re-optimize M0)
+		init1 = c(opt0$par,opt0$par[1])
+
+##############
+### This while loop attempts multiple optimizations of M0 and M1
+### At least Min_try and no more than Max_try optimizations are performed of each model. 
+### Continuing beyond Min_try requires that there has been an improvement of at least Tol in the log likelihood of M0 or M1
+### In each iteration, the optimzation of each model is initiated either at random values or at values that approximate the current optimal 
+### parameter values of the other model (if an improvement has been achieved in the log likelihood of the other model)
+##############
+			while(ct < Min_try | (ct < Max_try & (diff0 > Tol | diff1 > Tol))) {
+			ct = ct + 1
+			opt0 = optim(init0,func0,control=list(fnscale=-1,maxit=100000))
+			diff0 = opt0$value - current0$value
+			opt1 = optim(init1,func1,control=list(fnscale=-1,maxit=100000))
+			diff1 = opt1$value - current1$value
+				if(diff0 > 0) {
+				current0 = opt0
+				init1 = c(opt0$par,opt0$par[1])
+				} else {
+				init1 = c(runif(1,0,1),runif(1,1,100),runif(1,1,100),runif(1,0,1))
+				}
+				if(diff1 > 0) {
+				current1 = opt1
+				init0 = c((length(g[g==0])*opt1$par[1] + length(g[g==1])*opt1$par[4])/length(g),opt1$par[2:3]) 
+				} else {
+				init0 = c(runif(1,0,1),runif(1,1,100),runif(1,1,100))
+				}
+			}	
+
+		out = c(gene,snp,current0$value,current1$value,current1$value-current0$value, current1$par, current0$convergence, current1$convergence)
+		Out = rbind(Out,t(out))
+		}
+	}
+}
+
+write.table(Out,outfile,quote=F,col.names=F,row.names=F)
