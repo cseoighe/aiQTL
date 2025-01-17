@@ -4,7 +4,7 @@ Dependencies:
 The VGAM package
 
 Usage: 
-Rscript aiQTL <xfile> <nfile> <gfile> <targets>
+Rscript aiQTL `<xfile`> `<nfile`> `<gfile`> `<targets`>
 
 Where xfile contains the number of reads mapped to one allele of the genes on the rows for each sample on the columns nfile contains the total number of allele-specifically mapped reads (again genes on rows samples on columns) gfile contains the genotypes (0,1,2) of each individual (on the columns) for each SNP (in the rows) targets contains the SNP-gene pairs to be tested (each row contains a SNPID followed by a gene ID) Data in all the input files should be tab-separated
 
