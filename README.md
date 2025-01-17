@@ -1,7 +1,7 @@
 # aiQTL
 
 Dependencies:
-The VGAM package
+The code is written in R and requires the VGAM package
 
 Usage: 
 Rscript aiQTL `<xfile`> `<nfile`> `<gfile`> `<targets`>
